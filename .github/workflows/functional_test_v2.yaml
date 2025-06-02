@@ -9,11 +9,11 @@ on:
       UPLOAD_UPDATED_EXPECTED_RESULTS:
         description: 'Set this to true to upload updated golden file expected results and upload these results as a Github workflow artifact.'
         required: false
-        default: false
+        default: true
       UPLOAD_KUBERNETES_DEBUG_INFO:
         description: 'Set this to true to collect the debug info of the k8s cluster and upload this info as a Github workflow artifact.'
         required: false
-        default: false
+        default: true
 
 env:
   GO_VERSION: 1.23.6
