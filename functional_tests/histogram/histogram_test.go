@@ -111,21 +111,37 @@ func runMetricsTest(t *testing.T, isHistogram bool, metricsSink *consumertest.Me
 	expectedMetrics := &expected
 
 	var actualMetrics *pmetric.Metrics
+	metricName := input.NonHistogramMetricName
+	if isHistogram {
+		metricName = input.HistogramMetricName
+	}
 
-	t.Logf("checking for metrics matching component %s", input.ServiceName)
+	t.Logf("checking for metrics matching component %s (metric: %s)", input.ServiceName, metricName)
 	require.EventuallyWithT(t, func(tt *assert.CollectT) {
-		for h := len(metricsSink.AllMetrics()) - 1; h >= 0; h-- {
-			m := metricsSink.AllMetrics()[h]
+		allMetrics := metricsSink.AllMetrics()
+		t.Logf("Found %d metric batches", len(allMetrics))
+
+		for h := len(allMetrics) - 1; h >= 0; h-- {
+			m := allMetrics[h]
+			if m.ResourceMetrics().Len() == 0 {
+				t.Log("Skipping empty ResourceMetrics")
+				continue
+			}
 		OUTER:
 			for i := 0; i < m.ResourceMetrics().Len(); i++ {
-				for j := 0; j < m.ResourceMetrics().At(i).ScopeMetrics().Len(); j++ {
-					for k := 0; k < m.ResourceMetrics().At(i).ScopeMetrics().At(j).Metrics().Len(); k++ {
-						metricToConsider := m.ResourceMetrics().At(i).ScopeMetrics().At(j).Metrics().At(k)
-						metricName := input.NonHistogramMetricName
-						if isHistogram {
-							metricName = input.HistogramMetricName
-						}
-						if metricToConsider.Name() == metricName {
+				rm := m.ResourceMetrics().At(i)
+				if rm.ScopeMetrics().Len() == 0 {
+					continue
+				}
+				for j := 0; j < rm.ScopeMetrics().Len(); j++ {
+					sm := rm.ScopeMetrics().At(j)
+					if sm.Metrics().Len() == 0 {
+						continue
+					}
+					for k := 0; k < sm.Metrics().Len(); k++ {
+						metric := sm.Metrics().At(k)
+						if metric.Name() == metricName {
+							t.Logf("Found matching metric %s", metricName)
 							actualMetrics = &m
 							break OUTER
 						}
@@ -134,11 +150,14 @@ func runMetricsTest(t *testing.T, isHistogram bool, metricsSink *consumertest.Me
 			}
 		}
 
+		if actualMetrics == nil {
+			t.Logf("Did not find metric %s yet", metricName)
+		}
+
 		assert.NotNil(tt, actualMetrics, "Did not receive any metrics for component %s", input.ServiceName)
 	}, 5*time.Minute, 5*time.Second)
 
-	// Set GENERATE_EXPECTED to true to get a sample of the metrics for component - only for dev purposes
-	// The max datapoint count per metric can be adjusted as inpute to internal.ReduceDatapoints
+	// Developer convenience feature
 	if os.Getenv("GENERATE_EXPECTED") == "true" {
 		outputDir := filepath.Join("testdata", "expected", majorMinor)
 		require.NoError(t, os.MkdirAll(outputDir, 0o755))
